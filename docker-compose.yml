@@ -1,0 +1,48 @@
+name: store-admin
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: store_admin
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d store_admin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-off job: applies migrations and seeds the database, then exits.
+  migrate:
+    build:
+      context: .
+      target: builder
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/store_admin
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["app"]
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/store_admin
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in your .env file}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["app"]
+
+volumes:
+  postgres-data:
